@@ -114,7 +114,10 @@
 		_p(2, '<UseDebugLibraries>%s</UseDebugLibraries>', iif(optimisation(cfg) == "Disabled","true","false"))
 
 		_p(2, '<PlatformToolset>%s</PlatformToolset>', premake.vstudio.toolset)
-		_p(2, '<PreferredToolArchitecture>x64</PreferredToolArchitecture>')
+
+		if os.is64bit() then
+			_p(2, '<PreferredToolArchitecture>x64</PreferredToolArchitecture>')
+		end
 
 		if cfg.flags.MFC then
 			_p(2,'<UseOfMfc>%s</UseOfMfc>', iif(cfg.flags.StaticRuntime, "Static", "Dynamic"))
@@ -261,10 +264,16 @@
 		end
 	end
 
-	local function preprocessor(indent,cfg)
+	local function preprocessor(indent,cfg,escape)
 		if #cfg.defines > 0 then
+			-- Visual Studio requires escaping of command line arguments to RC.
+			local defines = table.concat(cfg.defines, ";")
+			if escape then
+				defines = defines:gsub('"', '\\"')
+			end
+			
 			_p(indent,'<PreprocessorDefinitions>%s;%%(PreprocessorDefinitions)</PreprocessorDefinitions>'
-				,premake.esc(table.concat(cfg.defines, ";")))
+				,premake.esc(defines))
 		else
 			_p(indent,'<PreprocessorDefinitions></PreprocessorDefinitions>')
 		end
@@ -288,7 +297,7 @@
 
 	local function resource_compile(cfg)
 		_p(2,'<ResourceCompile>')
-			preprocessor(3,cfg)
+			preprocessor(3,cfg,true)
 			include_dirs(3,cfg)
 		_p(2,'</ResourceCompile>')
 
@@ -537,7 +546,15 @@
 				_p(3, '<WarningsAsErrors>true</WarningsAsErrors>')
 			end
 		else
-			_p(3 ,'<WarningLevel>Level3</WarningLevel>')
+			if cfg.flags.PedanticWarnings then
+				_p(3, '<WarningLevel>EnableAllWarnings</WarningLevel>')
+			elseif cfg.flags.ExtraWarnings then
+				_p(3, '<WarningLevel>Level4</WarningLevel>')
+			elseif cfg.flags.MinimumWarnings then
+				_p(3, '<WarningLevel>Level1</WarningLevel>')
+			else
+				_p(3 ,'<WarningLevel>Level3</WarningLevel>')
+			end
 		end
 
 		if cfg.flags.FatalWarnings then

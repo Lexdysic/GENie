@@ -219,6 +219,16 @@
 		return (path.getextension(fname) == ".framework" or path.getextension(fname) == ".tbd")
 	end
 
+--
+-- Generates a unique 12 byte ID.
+-- Parameter is optional
+--
+-- @returns
+--    A 24-character string representing the 12 byte ID.
+--
+	function xcode.uuid(param)
+		return os.uuid(param):upper():gsub('-',''):sub(0,24)
+	end
 
 --
 -- Retrieves a unique 12 byte ID for an object. This function accepts and ignores two
@@ -229,14 +239,19 @@
 --    A 24-character string representing the 12 byte ID.
 --
 
-	function xcode.newid()
-		return string.format("%04X%04X%04X%04X%04X%04X",
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767),
-			math.random(0, 32767))
+	function xcode.newid(node, usage)
+		local base = ''
+
+		if node.path ~= nil then
+			base = base .. node.path
+		elseif node.name ~= nil then
+			base = base .. node.name
+		end
+
+		if usage ~= nil then
+			base = base .. usage
+		end
+		return xcode.uuid(base)
 	end
 
 
@@ -279,8 +294,11 @@
 --    The Xcode specific list tag.
 --
 
-	function xcode.printlist(list, tag)
+	function xcode.printlist(list, tag, sort)
 		if #list > 0 then
+			if sort ~= nil and sort == true then
+				table.sort(list)
+			end
 			_p(4,'%s = (', tag)
 			for _, item in ipairs(list) do
 				local escaped_item = item:gsub("\"", "\\\"")
@@ -993,10 +1011,35 @@
 
 		if cfg.pchheader and not cfg.flags.NoPCH then
 			_p(4,'GCC_PRECOMPILE_PREFIX_HEADER = YES;')
-			_p(4,'GCC_PREFIX_HEADER = "%s";', cfg.pchheader)
+
+			-- Visual Studio requires the PCH header to be specified in the same way
+			-- it appears in the #include statements used in the source code; the PCH
+			-- source actual handles the compilation of the header. GCC compiles the
+			-- header file directly, and needs the file's actual file system path in
+			-- order to locate it.
+
+			-- To maximize the compatibility between the two approaches, see if I can
+			-- locate the specified PCH header on one of the include file search paths
+			-- and, if so, adjust the path automatically so the user doesn't have
+			-- add a conditional configuration to the project script.
+
+			local pch = cfg.pchheader
+			for _, incdir in ipairs(cfg.includedirs) do
+
+				-- convert this back to an absolute path for os.isfile()
+				local abspath = path.getabsolute(path.join(cfg.project.location, incdir))
+
+				local testname = path.join(abspath, pch)
+				if os.isfile(testname) then
+					pch = path.getrelative(cfg.location, testname)
+					break
+				end
+			end
+
+			_p(4,'GCC_PREFIX_HEADER = "%s";', pch)
 		end
 
-		xcode.printlist(cfg.defines, 'GCC_PREPROCESSOR_DEFINITIONS')
+		xcode.printlist(cfg.defines, 'GCC_PREPROCESSOR_DEFINITIONS', true)
 
 		_p(4,'GCC_SYMBOLS_PRIVATE_EXTERN = NO;')
 
@@ -1033,8 +1076,8 @@
 			_p(4, val ..';')
 		end
 
-		xcode.printlist(table.join(flags, cfg.buildoptions, cfg.buildoptions_c), 'OTHER_CFLAGS')
-		xcode.printlist(table.join(flags, cfg.buildoptions, cfg.buildoptions_cpp), 'OTHER_CPLUSPLUSFLAGS')
+		xcode.printlist(table.join(flags, cfg.buildoptions, cfg.buildoptions_c), 'OTHER_CFLAGS', true)
+		xcode.printlist(table.join(flags, cfg.buildoptions, cfg.buildoptions_cpp), 'OTHER_CPLUSPLUSFLAGS', true)
 
 		-- build list of "other" linked flags. All libraries that aren't frameworks
 		-- are listed here, so I don't have to try and figure out if they are ".a"
@@ -1046,7 +1089,7 @@
 			end
 		end
 		flags = table.join(flags, cfg.linkoptions)
-		xcode.printlist(flags, 'OTHER_LDFLAGS')
+		xcode.printlist(flags, 'OTHER_LDFLAGS', true)
 
 		if cfg.flags.StaticRuntime then
 			_p(4,'STANDARD_C_PLUS_PLUS_LIBRARY_TYPE = static;')
