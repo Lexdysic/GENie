@@ -69,16 +69,27 @@
 --
 
 	function premake.iskeywordmatch(keyword, terms)
-		-- is it negated?
-		if keyword:startswith("not ") then
-			return not premake.iskeywordmatch(keyword:sub(5), terms)
+		local function matchall()
+			for _, pattern in ipairs(expression:explode(" and ")) do
+				local negate = false
+				if pattern:startswith("not ") then
+					pattern = pattern:sub(5)
+					negate = true
+				end
+				for termkey, term in pairs(terms) do
+					if (term:match(pattern) == term) != (negate == false) then
+						return
+					end
+				end
+			end
+
+			return keyword
 		end
 
-		for _, pattern in ipairs(keyword:explode(" or ")) do
-			for termkey, term in pairs(terms) do
-				if term:match(pattern) == term then
-					return termkey
-				end
+		for _, expression in ipairs(keyword:explode(" or ")) do
+			termkey = matchall()
+			if termkey then
+				return termkey
 			end
 		end
 	end
